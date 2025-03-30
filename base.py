@@ -1,35 +1,22 @@
 import cv2
-import mediapipe as mp
 
-# Initialize MediaPipe Hands
-mp_hands = mp.solutions.hands
-mp_draw = mp.solutions.drawing_utils
-hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7)
-
-# Open the webcam
 cap = cv2.VideoCapture(0)
 
-while cap.isOpened():
+if not cap.isOpened():
+    print("[ERROR] Could not open webcam!")
+    exit()
+
+while True:
     ret, frame = cap.read()
     if not ret:
+        print("[ERROR] Failed to capture frame!")
         break
 
-    # Flip the frame and convert to RGB
-    frame = cv2.flip(frame, 1)
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # Flip the frame horizontally (mirror effect)
+    frame = cv2.flip(frame, 1)  
 
-    # Process the frame
-    results = hands.process(rgb_frame)
+    cv2.imshow("Camera Test", frame)
 
-    # Draw hand landmarks
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-    # Show the output
-    cv2.imshow("Hand Tracking", frame)
-
-    # Exit on pressing 'q'
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
