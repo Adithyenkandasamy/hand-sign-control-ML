@@ -76,43 +76,28 @@ def is_finger_closed(finger_tip, finger_mcp, threshold=0.05):
     # Consider both vertical position and horizontal proximity to MCP
     return finger_tip.y > finger_mcp.y - threshold or abs(finger_tip.x - finger_mcp.x) < 0.05
 
-def is_palm_showing(landmarks):
-    """Detect if the palm is showing - improved implementation"""
-    # Get relevant landmarks
+def is_five_fingers_up(landmarks):
+    """Detect if all five fingers are extended"""
     thumb_tip = landmarks[THUMB_TIP]
     index_tip = landmarks[INDEX_TIP]
     middle_tip = landmarks[MIDDLE_TIP]
     ring_tip = landmarks[RING_TIP]
     pinky_tip = landmarks[PINKY_TIP]
     
-    # Get MCPs for better detection
     thumb_mcp = landmarks[THUMB_MCP]
     index_mcp = landmarks[INDEX_MCP]
     middle_mcp = landmarks[MIDDLE_MCP]
     ring_mcp = landmarks[RING_MCP]
     pinky_mcp = landmarks[PINKY_MCP]
     
-    # Check if all fingers are extended and spread apart
-    fingers_extended = (
+    # Check if all fingers are extended
+    return (
         is_finger_extended(thumb_tip, thumb_mcp, None, threshold=0.1) and
         is_finger_extended(index_tip, index_mcp, None, threshold=0.1) and
         is_finger_extended(middle_tip, middle_mcp, None, threshold=0.1) and
         is_finger_extended(ring_tip, ring_mcp, None, threshold=0.1) and
         is_finger_extended(pinky_tip, pinky_mcp, None, threshold=0.1)
     )
-    
-    # Check distances between fingertips to ensure they're spread
-    index_middle_dist = calculate_distance(index_tip, middle_tip)
-    middle_ring_dist = calculate_distance(middle_tip, ring_tip)
-    ring_pinky_dist = calculate_distance(ring_tip, pinky_tip)
-    
-    fingers_spread = (
-        index_middle_dist > 0.1 and
-        middle_ring_dist > 0.1 and
-        ring_pinky_dist > 0.1
-    )
-    
-    return fingers_extended and fingers_spread
 
 def detect_swing_gesture(current_position, position_history, threshold=0.15):
     """Detect a hand swing motion based on position history"""
@@ -414,27 +399,19 @@ while cap.isOpened():
                     pyautogui.press('down', presses=3)
                     last_action_time = current_time
             
-            # Check palm gesture - for play/pause
-            elif is_palm_showing(landmarks):
-                # Add an extra check that all fingers are spread out
-                finger_spread = (
-                    calculate_distance(index_tip, middle_tip) > 0.1 and
-                    calculate_distance(middle_tip, ring_tip) > 0.1 and
-                    calculate_distance(ring_tip, pinky_tip) > 0.1
-                )
+            # Check five fingers gesture - for play/pause
+            elif is_five_fingers_up(landmarks):
+                current_gesture = "Five Fingers"
+                if last_gesture == "Five Fingers":
+                    gesture_frames += 1
+                else:
+                    gesture_frames = 1
+                    last_gesture = "Five Fingers"
                 
-                if finger_spread:
-                    current_gesture = "Palm"
-                    if last_gesture == "Palm":
-                        gesture_frames += 1
-                    else:
-                        gesture_frames = 1
-                        last_gesture = "Palm"
-                    
-                    # Play/pause video on palm gesture
-                    if gesture_frames >= required_consecutive_frames and action_ready:
-                        pyautogui.press("space")
-                        last_action_time = current_time
+                # Play/pause video on five fingers gesture
+                if gesture_frames >= required_consecutive_frames and action_ready:
+                    pyautogui.press("space")
+                    last_action_time = current_time
             
             # Two Fingers (Rewind) - improved detection
             elif (index_extended and 
