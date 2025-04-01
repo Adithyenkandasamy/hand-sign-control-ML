@@ -63,21 +63,17 @@ position_history_length = 10
 DEBUG = True
 
 def calculate_distance(landmark1, landmark2):
-    """Calculate Euclidean distance between two landmarks"""
     return ((landmark1.x - landmark2.x) ** 2 + 
             (landmark1.y - landmark2.y) ** 2) ** 0.5
 
 def is_finger_extended(finger_tip, finger_mcp, wrist, threshold=0.1):
-    """Check if a finger is extended based on tip position relative to MCP"""
     return finger_tip.y < finger_mcp.y - threshold
 
 def is_finger_closed(finger_tip, finger_mcp, threshold=0.05):
-    """Check if a finger is closed (not extended)"""
     # Consider both vertical position and horizontal proximity to MCP
     return finger_tip.y > finger_mcp.y - threshold or abs(finger_tip.x - finger_mcp.x) < 0.05
 
 def is_five_fingers_up(landmarks):
-    """Detect if all five fingers are extended"""
     thumb_tip = landmarks[THUMB_TIP]
     index_tip = landmarks[INDEX_TIP]
     middle_tip = landmarks[MIDDLE_TIP]
@@ -100,8 +96,7 @@ def is_five_fingers_up(landmarks):
     )
 
 def detect_swing_gesture(current_position, position_history, threshold=0.15):
-    """Detect a hand swing motion based on position history"""
-    if len(position_history) < 5:  # Need enough history to detect swing
+    if len(position_history) < 5: 
         return False
     
     # Calculate x-directional movement
@@ -114,7 +109,6 @@ def detect_swing_gesture(current_position, position_history, threshold=0.15):
     return x_movement > threshold and y_movement < threshold / 2
 
 def is_thumbs_up(landmarks):
-    """Completely redesigned thumbs up detection with more reliable conditions"""
     thumb_tip = landmarks[THUMB_TIP]
     index_tip = landmarks[INDEX_TIP]
     middle_tip = landmarks[MIDDLE_TIP]
@@ -155,7 +149,6 @@ def is_thumbs_up(landmarks):
     return thumb_extended and thumb_direction_up and other_fingers_down and thumb_separated
 
 def is_thumbs_down(landmarks):
-    """Improved thumbs down detection with similar logic to thumbs up"""
     thumb_tip = landmarks[THUMB_TIP]
     index_tip = landmarks[INDEX_TIP]
     middle_tip = landmarks[MIDDLE_TIP]
@@ -191,7 +184,6 @@ def is_thumbs_down(landmarks):
     return thumb_extended_down and thumb_direction_down and other_fingers_down and thumb_separated
 
 def are_hands_crossed(hand_landmarks1, hand_landmarks2):
-    """Detect if two hands are crossed - improved with more robust checks"""
     if hand_landmarks1 and hand_landmarks2:
         # Get wrist positions for both hands
         wrist1 = hand_landmarks1.landmark[WRIST]
@@ -213,7 +205,6 @@ def are_hands_crossed(hand_landmarks1, hand_landmarks2):
     return False
 
 def visualize_landmarks(frame, landmarks, gesture="None"):
-    """Helper function to visualize key landmarks for debugging"""
     height, width, _ = frame.shape
     
     # Define colors
