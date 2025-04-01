@@ -9,8 +9,8 @@ mp_draw = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=2,
-    min_detection_confidence=0.6,  # Increased for better accuracy
-    min_tracking_confidence=0.6    # Increased for better accuracy
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6
 )
 
 # Set up simplified landmark drawing for better performance
@@ -68,6 +68,10 @@ def is_finger_extended(finger_tip, finger_mcp, wrist, threshold=0.1):
     """Check if a finger is extended based on tip position relative to MCP"""
     return finger_tip.y < finger_mcp.y - threshold
 
+def is_finger_closed(finger_tip, finger_mcp, threshold=0.05):
+    """Check if a finger is closed (not extended)"""
+    return finger_tip.y > finger_mcp.y - threshold
+
 def is_palm_showing(landmarks):
     """Detect if the palm is showing - improved implementation"""
     # Get relevant landmarks
@@ -86,11 +90,11 @@ def is_palm_showing(landmarks):
     
     # Check if all fingers are extended and spread apart
     fingers_extended = (
-        is_finger_extended(thumb_tip, thumb_mcp, None, threshold=0.05) and
-        is_finger_extended(index_tip, index_mcp, None, threshold=0.15) and
-        is_finger_extended(middle_tip, middle_mcp, None, threshold=0.15) and
-        is_finger_extended(ring_tip, ring_mcp, None, threshold=0.15) and
-        is_finger_extended(pinky_tip, pinky_mcp, None, threshold=0.15)
+        is_finger_extended(thumb_tip, thumb_mcp, None, threshold=0.1) and
+        is_finger_extended(index_tip, index_mcp, None, threshold=0.1) and
+        is_finger_extended(middle_tip, middle_mcp, None, threshold=0.1) and
+        is_finger_extended(ring_tip, ring_mcp, None, threshold=0.1) and
+        is_finger_extended(pinky_tip, pinky_mcp, None, threshold=0.1)
     )
     
     # Check distances between fingertips to ensure they're spread
@@ -99,9 +103,9 @@ def is_palm_showing(landmarks):
     ring_pinky_dist = calculate_distance(ring_tip, pinky_tip)
     
     fingers_spread = (
-        index_middle_dist > 0.05 and
-        middle_ring_dist > 0.05 and
-        ring_pinky_dist > 0.05
+        index_middle_dist > 0.1 and
+        middle_ring_dist > 0.1 and
+        ring_pinky_dist > 0.1
     )
     
     return fingers_extended and fingers_spread
@@ -120,16 +124,75 @@ def detect_swing_gesture(current_position, position_history, threshold=0.15):
     # Return true if horizontal movement exceeds threshold and vertical movement is minimal
     return x_movement > threshold and y_movement < threshold / 2
 
-def is_pinch_gesture(landmarks):
-    """Improved pinch gesture detection"""
+def is_thumbs_up(landmarks):
+    """Improved thumbs up detection"""
     thumb_tip = landmarks[THUMB_TIP]
     index_tip = landmarks[INDEX_TIP]
+    middle_tip = landmarks[MIDDLE_TIP]
+    ring_tip = landmarks[RING_TIP]
+    pinky_tip = landmarks[PINKY_TIP]
     
-    # Calculate distance between thumb and index fingertips
-    distance = calculate_distance(thumb_tip, index_tip)
+    thumb_ip = landmarks[3]  # Thumb IP joint
+    thumb_mcp = landmarks[THUMB_MCP]
+    index_mcp = landmarks[INDEX_MCP]
+    middle_mcp = landmarks[MIDDLE_MCP]
+    ring_mcp = landmarks[RING_MCP]
+    pinky_mcp = landmarks[PINKY_MCP]
+    wrist = landmarks[WRIST]
     
-    # Check if thumb and index are touching (very small distance)
-    return distance < 0.035  # Adjusted threshold for more reliable detection
+    # Check thumb is pointing up
+    thumb_up = thumb_tip.y < thumb_ip.y and thumb_tip.y < thumb_mcp.y
+    
+    # Check other fingers are curled in
+    other_fingers_down = (
+        index_tip.y > index_mcp.y and
+        middle_tip.y > middle_mcp.y and
+        ring_tip.y > ring_mcp.y and
+        pinky_tip.y > pinky_mcp.y
+    )
+    
+    # Ensure thumb is raised significantly higher than other fingers
+    thumb_raised = thumb_tip.y < index_tip.y - 0.1
+    
+    # Check thumb is pointing up relative to the wrist
+    thumb_direction = thumb_tip.y < wrist.y
+    
+    return thumb_up and other_fingers_down and thumb_raised and thumb_direction
+
+def is_thumbs_down(landmarks):
+    """Improved thumbs down detection"""
+    thumb_tip = landmarks[THUMB_TIP]
+    index_tip = landmarks[INDEX_TIP]
+    middle_tip = landmarks[MIDDLE_TIP]
+    ring_tip = landmarks[RING_TIP]
+    pinky_tip = landmarks[PINKY_TIP]
+    
+    thumb_ip = landmarks[3]  # Thumb IP joint
+    thumb_mcp = landmarks[THUMB_MCP]
+    index_mcp = landmarks[INDEX_MCP]
+    middle_mcp = landmarks[MIDDLE_MCP]
+    ring_mcp = landmarks[RING_MCP]
+    pinky_mcp = landmarks[PINKY_MCP]
+    wrist = landmarks[WRIST]
+    
+    # Check thumb is pointing down
+    thumb_down = thumb_tip.y > thumb_ip.y and thumb_tip.y > thumb_mcp.y
+    
+    # Check other fingers are curled in
+    other_fingers_down = (
+        index_tip.y > index_mcp.y and
+        middle_tip.y > middle_mcp.y and
+        ring_tip.y > ring_mcp.y and
+        pinky_tip.y > pinky_mcp.y
+    )
+    
+    # Ensure thumb is lower than other fingers
+    thumb_lowered = thumb_tip.y > index_tip.y + 0.05
+    
+    # Check thumb is pointing down relative to the wrist
+    thumb_direction = thumb_tip.y > wrist.y
+    
+    return thumb_down and other_fingers_down and thumb_lowered and thumb_direction
 
 def are_hands_crossed(hand_landmarks1, hand_landmarks2):
     """Detect if two hands are crossed - improved with more robust checks"""
@@ -150,7 +213,7 @@ def are_hands_crossed(hand_landmarks1, hand_landmarks2):
         crossed_condition2 = (wrist1.x > wrist2.x) and (middle1.x < middle2.x)
         
         # Ensure wrists are a reasonable distance apart
-        return (crossed_condition1 or crossed_condition2) and wrist_distance > 0.2
+        return (crossed_condition1 or crossed_condition2) and wrist_distance > 0.1
     return False
 
 # Main loop
@@ -242,11 +305,11 @@ while cap.isOpened():
                 previous_hand_positions.pop(0)
             
             # Check if fingers are extended
-            index_extended = index_tip.y < index_mcp.y - 0.05
-            middle_extended = middle_tip.y < middle_mcp.y - 0.05
-            ring_extended = ring_tip.y < ring_mcp.y - 0.05
-            pinky_extended = pinky_tip.y < pinky_mcp.y - 0.05
-            thumb_extended = thumb_tip.y < thumb_mcp.y - 0.05
+            index_extended = index_tip.y < index_mcp.y - 0.1
+            middle_extended = middle_tip.y < middle_mcp.y - 0.1
+            ring_extended = ring_tip.y < ring_mcp.y - 0.1
+            pinky_extended = pinky_tip.y < pinky_mcp.y - 0.1
+            thumb_extended = thumb_tip.y < thumb_mcp.y - 0.1
             
             # Check for swing gesture
             if detect_swing_gesture(wrist, previous_hand_positions):
@@ -258,18 +321,17 @@ while cap.isOpened():
                     last_gesture = "Swing"
                 
                 if gesture_frames >= required_consecutive_frames and action_ready:
-                    # Exit application on swing gesture
-                    cv2.destroyAllWindows()
-                    cap.release()
-                    break
+                    # Close YouTube tab when swing is detected
+                    pyautogui.hotkey('ctrl', 'w')
+                    last_action_time = current_time
             
             # Check palm gesture - for play/pause
             elif is_palm_showing(landmarks):
                 # Add an extra check that all fingers are spread out
                 finger_spread = (
-                    calculate_distance(index_tip, middle_tip) > 0.05 and
-                    calculate_distance(middle_tip, ring_tip) > 0.05 and
-                    calculate_distance(ring_tip, pinky_tip) > 0.05
+                    calculate_distance(index_tip, middle_tip) > 0.1 and
+                    calculate_distance(middle_tip, ring_tip) > 0.1 and
+                    calculate_distance(ring_tip, pinky_tip) > 0.1
                 )
                 
                 if finger_spread:
@@ -285,28 +347,8 @@ while cap.isOpened():
                         pyautogui.press("space")
                         last_action_time = current_time
             
-            # Pinch Gesture (CHANGED TO CLOSE YOUTUBE APP)
-            elif is_pinch_gesture(landmarks):
-                current_gesture = "Pinch"
-                if last_gesture == "Pinch":
-                    gesture_frames += 1
-                else:
-                    gesture_frames = 1
-                    last_gesture = "Pinch"
-                
-                if gesture_frames >= required_consecutive_frames and action_ready:
-                    # Close YouTube tab when pinch is detected
-                    pyautogui.hotkey('ctrl', 'w')  # Close current tab/window
-                    last_action_time = current_time
-            
-            # Thumbs Up (Volume Up) - more specific conditions
-            elif (thumb_extended and
-                  thumb_tip.y < thumb_mcp.y - 0.1 and  # Thumb is clearly up
-                  not index_extended and 
-                  not middle_extended and 
-                  not ring_extended and 
-                  not pinky_extended):
-                
+            # Thumbs Up (Volume Up) - completely rewritten detection
+            elif is_thumbs_up(landmarks):
                 current_gesture = "Thumbs Up"
                 if last_gesture == "Thumbs Up":
                     gesture_frames += 1
@@ -318,14 +360,8 @@ while cap.isOpened():
                     pyautogui.press('up', presses=3)
                     last_action_time = current_time
             
-            # Thumbs Down (Volume Down) - more specific conditions
-            elif (not thumb_extended and 
-                  thumb_tip.y > thumb_mcp.y + 0.1 and  # Thumb is clearly down
-                  not index_extended and 
-                  not middle_extended and 
-                  not ring_extended and 
-                  not pinky_extended):
-                
+            # Thumbs Down (Volume Down) - completely rewritten detection
+            elif is_thumbs_down(landmarks):
                 current_gesture = "Thumbs Down"
                 if last_gesture == "Thumbs Down":
                     gesture_frames += 1
@@ -342,7 +378,7 @@ while cap.isOpened():
                   middle_extended and 
                   not ring_extended and 
                   not pinky_extended and
-                  calculate_distance(index_tip, middle_tip) < 0.07):  # Fingers close together
+                  calculate_distance(index_tip, middle_tip) < 0.1):
                 
                 current_gesture = "Two Fingers"
                 if last_gesture == "Two Fingers":
@@ -360,8 +396,8 @@ while cap.isOpened():
                   middle_extended and 
                   ring_extended and 
                   not pinky_extended and
-                  calculate_distance(index_tip, middle_tip) < 0.07 and
-                  calculate_distance(middle_tip, ring_tip) < 0.07):  # Fingers close together
+                  calculate_distance(index_tip, middle_tip) < 0.1 and
+                  calculate_distance(middle_tip, ring_tip) < 0.1):
                 
                 current_gesture = "Three Fingers"
                 if last_gesture == "Three Fingers":
