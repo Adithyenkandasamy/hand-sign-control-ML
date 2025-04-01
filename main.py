@@ -59,6 +59,9 @@ gesture_history_length = 3
 previous_hand_positions = []
 position_history_length = 10
 
+# Debug mode
+DEBUG = True
+
 def calculate_distance(landmark1, landmark2):
     """Calculate Euclidean distance between two landmarks"""
     return ((landmark1.x - landmark2.x) ** 2 + 
@@ -70,7 +73,8 @@ def is_finger_extended(finger_tip, finger_mcp, wrist, threshold=0.1):
 
 def is_finger_closed(finger_tip, finger_mcp, threshold=0.05):
     """Check if a finger is closed (not extended)"""
-    return finger_tip.y > finger_mcp.y - threshold
+    # Consider both vertical position and horizontal proximity to MCP
+    return finger_tip.y > finger_mcp.y - threshold or abs(finger_tip.x - finger_mcp.x) < 0.05
 
 def is_palm_showing(landmarks):
     """Detect if the palm is showing - improved implementation"""
@@ -125,7 +129,7 @@ def detect_swing_gesture(current_position, position_history, threshold=0.15):
     return x_movement > threshold and y_movement < threshold / 2
 
 def is_thumbs_up(landmarks):
-    """Improved thumbs up detection"""
+    """Completely redesigned thumbs up detection with more reliable conditions"""
     thumb_tip = landmarks[THUMB_TIP]
     index_tip = landmarks[INDEX_TIP]
     middle_tip = landmarks[MIDDLE_TIP]
@@ -140,27 +144,33 @@ def is_thumbs_up(landmarks):
     pinky_mcp = landmarks[PINKY_MCP]
     wrist = landmarks[WRIST]
     
-    # Check thumb is pointing up
-    thumb_up = thumb_tip.y < thumb_ip.y and thumb_tip.y < thumb_mcp.y
+    # Primary condition: thumb is extended upward
+    thumb_extended = thumb_tip.y < thumb_mcp.y - 0.08
     
-    # Check other fingers are curled in
+    # Check the thumb is pointing mainly upward (y-direction)
+    thumb_direction_up = thumb_tip.y < thumb_ip.y - 0.05
+    
+    # Check other fingers are curled in (more relaxed condition)
     other_fingers_down = (
-        index_tip.y > index_mcp.y and
-        middle_tip.y > middle_mcp.y and
-        ring_tip.y > ring_mcp.y and
-        pinky_tip.y > pinky_mcp.y
+        is_finger_closed(index_tip, index_mcp) and
+        is_finger_closed(middle_tip, middle_mcp) and
+        is_finger_closed(ring_tip, ring_mcp) and
+        is_finger_closed(pinky_tip, pinky_mcp)
     )
     
-    # Ensure thumb is raised significantly higher than other fingers
-    thumb_raised = thumb_tip.y < index_tip.y - 0.1
+    # Make sure thumb is separated from other fingers
+    thumb_separated = abs(thumb_tip.x - index_tip.x) > 0.08
     
-    # Check thumb is pointing up relative to the wrist
-    thumb_direction = thumb_tip.y < wrist.y
+    # For debugging
+    if DEBUG and thumb_extended and thumb_direction_up:
+        print(f"Thumb check: Extended={thumb_extended}, Direction={thumb_direction_up}, " 
+              f"Fingers down={other_fingers_down}, Separated={thumb_separated}")
     
-    return thumb_up and other_fingers_down and thumb_raised and thumb_direction
+    # Return true if all conditions are met
+    return thumb_extended and thumb_direction_up and other_fingers_down and thumb_separated
 
 def is_thumbs_down(landmarks):
-    """Improved thumbs down detection"""
+    """Improved thumbs down detection with similar logic to thumbs up"""
     thumb_tip = landmarks[THUMB_TIP]
     index_tip = landmarks[INDEX_TIP]
     middle_tip = landmarks[MIDDLE_TIP]
@@ -175,24 +185,25 @@ def is_thumbs_down(landmarks):
     pinky_mcp = landmarks[PINKY_MCP]
     wrist = landmarks[WRIST]
     
-    # Check thumb is pointing down
-    thumb_down = thumb_tip.y > thumb_ip.y and thumb_tip.y > thumb_mcp.y
+    # Primary condition: thumb is extended downward
+    thumb_extended_down = thumb_tip.y > thumb_mcp.y + 0.08
+    
+    # Check the thumb is pointing mainly downward (y-direction)
+    thumb_direction_down = thumb_tip.y > thumb_ip.y + 0.05
     
     # Check other fingers are curled in
     other_fingers_down = (
-        index_tip.y > index_mcp.y and
-        middle_tip.y > middle_mcp.y and
-        ring_tip.y > ring_mcp.y and
-        pinky_tip.y > pinky_mcp.y
+        is_finger_closed(index_tip, index_mcp) and
+        is_finger_closed(middle_tip, middle_mcp) and
+        is_finger_closed(ring_tip, ring_mcp) and
+        is_finger_closed(pinky_tip, pinky_mcp)
     )
     
-    # Ensure thumb is lower than other fingers
-    thumb_lowered = thumb_tip.y > index_tip.y + 0.05
+    # Make sure thumb is separated from other fingers
+    thumb_separated = abs(thumb_tip.x - index_tip.x) > 0.08
     
-    # Check thumb is pointing down relative to the wrist
-    thumb_direction = thumb_tip.y > wrist.y
-    
-    return thumb_down and other_fingers_down and thumb_lowered and thumb_direction
+    # Return true if all conditions are met
+    return thumb_extended_down and thumb_direction_down and other_fingers_down and thumb_separated
 
 def are_hands_crossed(hand_landmarks1, hand_landmarks2):
     """Detect if two hands are crossed - improved with more robust checks"""
@@ -216,6 +227,49 @@ def are_hands_crossed(hand_landmarks1, hand_landmarks2):
         return (crossed_condition1 or crossed_condition2) and wrist_distance > 0.1
     return False
 
+def visualize_landmarks(frame, landmarks, gesture="None"):
+    """Helper function to visualize key landmarks for debugging"""
+    height, width, _ = frame.shape
+    
+    # Define colors
+    RED = (0, 0, 255)
+    GREEN = (0, 255, 0)
+    BLUE = (255, 0, 0)
+    YELLOW = (0, 255, 255)
+    
+    # Draw key landmarks with different colors
+    # Thumb
+    thumb_tip_pos = (int(landmarks[THUMB_TIP].x * width), 
+                     int(landmarks[THUMB_TIP].y * height))
+    cv2.circle(frame, thumb_tip_pos, 8, RED, -1)
+    cv2.putText(frame, "T", (thumb_tip_pos[0]+5, thumb_tip_pos[1]-5), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, RED, 2)
+    
+    # Index
+    index_tip_pos = (int(landmarks[INDEX_TIP].x * width), 
+                    int(landmarks[INDEX_TIP].y * height))
+    cv2.circle(frame, index_tip_pos, 6, GREEN, -1)
+    
+    # Wrist
+    wrist_pos = (int(landmarks[WRIST].x * width), 
+                int(landmarks[WRIST].y * height))
+    cv2.circle(frame, wrist_pos, 8, BLUE, -1)
+    
+    # If thumbs up is being attempted, show more debug info
+    if gesture == "Attempting Thumbs Up":
+        thumb_mcp_pos = (int(landmarks[THUMB_MCP].x * width), 
+                         int(landmarks[THUMB_MCP].y * height))
+        thumb_ip_pos = (int(landmarks[3].x * width), 
+                        int(landmarks[3].y * height))
+        
+        # Draw thumb joints
+        cv2.circle(frame, thumb_mcp_pos, 5, YELLOW, -1)
+        cv2.circle(frame, thumb_ip_pos, 5, YELLOW, -1)
+        
+        # Draw connecting line
+        cv2.line(frame, thumb_mcp_pos, thumb_ip_pos, YELLOW, 2)
+        cv2.line(frame, thumb_ip_pos, thumb_tip_pos, YELLOW, 2)
+
 # Main loop
 while cap.isOpened():
     ret, frame = cap.read()
@@ -236,6 +290,7 @@ while cap.isOpened():
     action_ready = current_time - last_action_time > cooldown
     
     current_gesture = "None"
+    attempting_thumbs_up = False
     
     # Check for hands
     if results.multi_hand_landmarks:
@@ -325,6 +380,40 @@ while cap.isOpened():
                     pyautogui.hotkey('ctrl', 'w')
                     last_action_time = current_time
             
+            # Check thumb orientation for debugging
+            thumb_up_direction = thumb_tip.y < thumb_mcp.y - 0.08 and thumb_tip.y < landmarks[3].y - 0.05
+            if thumb_up_direction and not index_extended and not middle_extended:
+                attempting_thumbs_up = True
+            
+            # Thumbs Up (Volume Up) - completely rewritten detection
+            if is_thumbs_up(landmarks):
+                current_gesture = "Thumbs Up"
+                if last_gesture == "Thumbs Up":
+                    gesture_frames += 1
+                else:
+                    gesture_frames = 1
+                    last_gesture = "Thumbs Up"
+                
+                if gesture_frames >= required_consecutive_frames and action_ready:
+                    pyautogui.press('up', presses=3)
+                    last_action_time = current_time
+                    
+                    if DEBUG:
+                        print("EXECUTED: Thumbs Up - Volume Up")
+            
+            # Thumbs Down (Volume Down) - improved detection
+            elif is_thumbs_down(landmarks):
+                current_gesture = "Thumbs Down"
+                if last_gesture == "Thumbs Down":
+                    gesture_frames += 1
+                else:
+                    gesture_frames = 1
+                    last_gesture = "Thumbs Down"
+                
+                if gesture_frames >= required_consecutive_frames and action_ready:
+                    pyautogui.press('down', presses=3)
+                    last_action_time = current_time
+            
             # Check palm gesture - for play/pause
             elif is_palm_showing(landmarks):
                 # Add an extra check that all fingers are spread out
@@ -346,32 +435,6 @@ while cap.isOpened():
                     if gesture_frames >= required_consecutive_frames and action_ready:
                         pyautogui.press("space")
                         last_action_time = current_time
-            
-            # Thumbs Up (Volume Up) - completely rewritten detection
-            elif is_thumbs_up(landmarks):
-                current_gesture = "Thumbs Up"
-                if last_gesture == "Thumbs Up":
-                    gesture_frames += 1
-                else:
-                    gesture_frames = 1
-                    last_gesture = "Thumbs Up"
-                
-                if gesture_frames >= required_consecutive_frames and action_ready:
-                    pyautogui.press('up', presses=3)
-                    last_action_time = current_time
-            
-            # Thumbs Down (Volume Down) - completely rewritten detection
-            elif is_thumbs_down(landmarks):
-                current_gesture = "Thumbs Down"
-                if last_gesture == "Thumbs Down":
-                    gesture_frames += 1
-                else:
-                    gesture_frames = 1
-                    last_gesture = "Thumbs Down"
-                
-                if gesture_frames >= required_consecutive_frames and action_ready:
-                    pyautogui.press('down', presses=3)
-                    last_action_time = current_time
             
             # Two Fingers (Rewind) - improved detection
             elif (index_extended and 
@@ -432,13 +495,30 @@ while cap.isOpened():
             else:
                 last_gesture = None
                 gesture_frames = 0
+                
+            # Draw debug visualization if needed
+            if DEBUG:
+                if attempting_thumbs_up:
+                    visualize_landmarks(frame, landmarks, "Attempting Thumbs Up")
+                    
+                    # Add detailed metrics for thumbs up
+                    thumb_details = (
+                        f"Thumb tip y: {thumb_tip.y:.2f}, "
+                        f"Thumb IP y: {landmarks[3].y:.2f}, "
+                        f"Diff: {landmarks[3].y - thumb_tip.y:.2f}"
+                    )
+                    cv2.putText(frame, thumb_details, (10, frame.shape[0] - 10), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+                else:
+                    visualize_landmarks(frame, landmarks)
     else:
         # Reset if no hands detected
         last_gesture = None
         gesture_frames = 0
     
-    # Display current gesture on screen
-    cv2.putText(frame, f"Gesture: {current_gesture}", (10, 30), 
+    # Display current gesture and frame count on screen
+    gesture_text = f"Gesture: {current_gesture}" + (f" (Frames: {gesture_frames})" if gesture_frames > 0 else "")
+    cv2.putText(frame, gesture_text, (10, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     
     # Update gesture history
