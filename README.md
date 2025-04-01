@@ -51,11 +51,11 @@ This project lets you control some things on your computer using your hand gestu
 Here's how the files in the project are organized:
 
 ```
-hand-sign-control-ML/
-├── README.md          # This file! It explains the project.
-├── base.py            # A simple example for hand tracking.
-├── main.py            # The main program for hand gesture control.
-└── requirements.txt   # A list of Python dependencies.
+- hand-sign-control-ML/
+- ├── README.md          # This file! It explains the project.
+- ├── base.py            # A simple example for hand tracking.
+- ├── main.py            # The main program for hand gesture control.
+- └── requirements.txt   # A list of Python dependencies.
 ```
 ```
 
