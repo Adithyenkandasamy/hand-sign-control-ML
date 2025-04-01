@@ -10,7 +10,7 @@ mp_draw = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
     min_detection_confidence=0.7,
     min_tracking_confidence=0.7,
-    max_num_hands=2  # Changed to 2 to detect two hands for crossed gesture
+    max_num_hands=2
 )
 
 # Open webcam
@@ -27,11 +27,11 @@ PINKY_TIP = 20
 WRIST = 0
 
 # Define additional palm landmark indices
-THUMB_MCP = 2  # Metacarpophalangeal joint of the thumb
-INDEX_MCP = 5  # Metacarpophalangeal joint of the index finger
-MIDDLE_MCP = 9  # Metacarpophalangeal joint of the middle finger
-RING_MCP = 13  # Metacarpophalangeal joint of the ring finger
-PINKY_MCP = 17  # Metacarpophalangeal joint of the pinky
+THUMB_MCP = 2
+INDEX_MCP = 5
+MIDDLE_MCP = 9
+RING_MCP = 13
+PINKY_MCP = 17
 
 # Variables to track gesture states
 pinch_active = False
@@ -46,22 +46,14 @@ hands_crossed_active = False
 # YouTube control mode - set to True by default to always enable video controls
 youtube_mode = True
 
-# Cooldown mechanism
+# Cooldown mechanism - shorter for more responsive control
 last_action_time = 0
-cooldown = 0.5  # seconds between actions
+cooldown = 0.3  # seconds between actions (reduced from 0.5)
 
-# Gesture recognition timing variables
-thumbs_up_start_time = 0
-thumbs_down_start_time = 0
-two_fingers_start_time = 0
-three_fingers_start_time = 0
-four_fingers_start_time = 0
-pinch_start_time = 0
-hands_crossed_start_time = 0
-continuous_action_interval = 3.0  # seconds between repeating actions
-
-# Minimum gesture hold time (NEW)
-min_gesture_time = 1.0  # Only activate after holding for 1 second
+# Gesture recognition tracking
+last_gesture = None
+gesture_frames = 0
+required_consecutive_frames = 3  # Number of consecutive frames to confirm a gesture
 
 # Disable mouse scroll events for palm gesture
 pyautogui.FAILSAFE = True
@@ -86,7 +78,7 @@ def is_palm_showing(landmarks):
     pinky_tip = landmarks[PINKY_TIP]
     wrist = landmarks[WRIST]
     
-    # Check if all fingers are extended and spread out
+    # Get MCPs for better detection
     thumb_mcp = landmarks[THUMB_MCP]
     index_mcp = landmarks[INDEX_MCP]
     middle_mcp = landmarks[MIDDLE_MCP]
@@ -129,8 +121,6 @@ def are_hands_crossed(hand_landmarks1, hand_landmarks2):
         index2 = hand_landmarks2.landmark[INDEX_TIP]
         
         # Check if hands are crossed
-        # Left hand's wrist is on the left but its index finger is on the right
-        # Right hand's wrist is on the right but its index finger is on the left
         crossed_condition1 = (wrist1.x < wrist2.x) and (index1.x > index2.x)
         crossed_condition2 = (wrist1.x > wrist2.x) and (index1.x < index2.x)
         
@@ -148,7 +138,7 @@ while cap.isOpened():
     frame = cv2.flip(frame, 1)
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
-    # Process frame
+    # Process frame with improved performance setting
     results = hands.process(rgb_frame)
     
     # Add a black background for better text visibility
@@ -180,6 +170,7 @@ while cap.isOpened():
                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 2)
     
     detection_status = "No Hand Detected"
+    current_gesture = "None"
     
     # Check for crossed hands first - need two hands for this gesture
     if results.multi_hand_landmarks and len(results.multi_hand_landmarks) == 2:
@@ -191,30 +182,29 @@ while cap.isOpened():
         
         # Check if hands are crossed
         if are_hands_crossed(results.multi_hand_landmarks[0], results.multi_hand_landmarks[1]):
+            current_gesture = "Hands Crossed"
             cv2.putText(frame, "Hands Crossed Detected", (50, 250), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
             
-            # Start timing if not already tracking
-            if not hands_crossed_active:
-                hands_crossed_start_time = current_time
-                hands_crossed_active = True
+            # Check if this is a new gesture or continued gesture
+            if last_gesture == "Hands Crossed":
+                gesture_frames += 1
+            else:
+                gesture_frames = 1
+                last_gesture = "Hands Crossed"
             
-            # Check if gesture held long enough
-            if hands_crossed_active and (current_time - hands_crossed_start_time >= min_gesture_time):
-                hold_time = current_time - hands_crossed_start_time
-                cv2.putText(frame, f"Holding: {hold_time:.1f}s", (50, 275), 
+            # Execute action if we have enough consecutive frames
+            if gesture_frames >= required_consecutive_frames and action_ready:
+                cv2.putText(frame, "ACTION: Closing YouTube", (50, 300), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
                 
-                # Close YouTube website if held for required time and not recently acted
-                if action_ready and hold_time >= min_gesture_time:
-                    cv2.putText(frame, "ACTION: Closing YouTube", (50, 300), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
-                    
-                    # Use JavaScript to close the browser tab (works for YouTube)
-                    pyautogui.hotkey('ctrl', 'w')
-                    last_action_time = current_time
+                # Use keyboard shortcut to close the browser tab
+                pyautogui.hotkey('ctrl', 'w')
+                last_action_time = current_time
         else:
-            hands_crossed_active = False
+            if last_gesture == "Hands Crossed":
+                last_gesture = None
+                gesture_frames = 0
     
     # Process single hand gestures
     elif results.multi_hand_landmarks and len(results.multi_hand_landmarks) == 1:
@@ -250,9 +240,6 @@ while cap.isOpened():
         ring_extended = is_finger_extended(ring_tip, ring_mcp, wrist)
         pinky_extended = is_finger_extended(pinky_tip, pinky_mcp, wrist)
         
-        # Track current gesture status
-        current_gesture = "None"
-        
         # Check for palm gesture first (to prevent other gestures from triggering)
         if is_palm_showing(landmarks):
             current_gesture = "Palm"
@@ -266,10 +253,13 @@ while cap.isOpened():
             cv2.putText(frame, "DETECTED", (480, 120), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
-            palm_active = True
+            if last_gesture != "Palm":
+                last_gesture = "Palm"
+                gesture_frames = 1
+            else:
+                gesture_frames += 1
             continue
         else:
-            palm_active = False
             # Reset palm box to default
             cv2.rectangle(frame, (450, 70), (610, 150), (100, 0, 0), 2)  # Red outline
         
@@ -284,225 +274,188 @@ while cap.isOpened():
             cv2.putText(frame, "Volume Up (10%)", (50, 100), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
             
-            # Start timing if not already tracking
-            if not thumbs_up_active:
-                thumbs_up_start_time = current_time
-                thumbs_up_active = True
-                
-            # Show hold duration
-            hold_time = current_time - thumbs_up_start_time
-            cv2.putText(frame, f"Holding: {hold_time:.1f}s", (50, 125), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            # Check if this is a new gesture or continued gesture
+            if last_gesture == "Thumbs Up":
+                gesture_frames += 1
+            else:
+                gesture_frames = 1
+                last_gesture = "Thumbs Up"
             
-            # Only trigger if held for minimum time
-            if thumbs_up_active and hold_time >= min_gesture_time:
-                # Initial press
-                if action_ready:
-                    # Press up arrow 10 times for 10% volume increase
-                    for _ in range(10):
-                        pyautogui.press('up')
-                    last_action_time = current_time
-                    
+            # Execute if we have enough consecutive frames
+            if gesture_frames >= required_consecutive_frames and action_ready:
+                # Press up arrow 10 times for 10% volume increase
+                for _ in range(10):
+                    pyautogui.press('up')
+                last_action_time = current_time
+                
                 # Show that action was performed
                 cv2.putText(frame, "ACTION: Volume +10%", (50, 150), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        else:
-            thumbs_up_active = False  
-            
+        
         # 2. Thumbs Down (Volume Down by 10)
-        if (thumb_tip.y > thumb_mcp.y + 0.05 and
-            not index_extended and 
-            not middle_extended and 
-            not ring_extended and 
-            not pinky_extended):
+        elif (thumb_tip.y > thumb_mcp.y + 0.05 and
+              not index_extended and 
+              not middle_extended and 
+              not ring_extended and 
+              not pinky_extended):
             
             current_gesture = "Thumbs Down"
             cv2.putText(frame, "Volume Down (10%)", (50, 100), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
             
-            # Start timing if not already tracking
-            if not thumbs_down_active:
-                thumbs_down_start_time = current_time
-                thumbs_down_active = True
+            # Check if this is a new gesture or continued gesture
+            if last_gesture == "Thumbs Down":
+                gesture_frames += 1
+            else:
+                gesture_frames = 1
+                last_gesture = "Thumbs Down"
             
-            # Show hold duration
-            hold_time = current_time - thumbs_down_start_time
-            cv2.putText(frame, f"Holding: {hold_time:.1f}s", (50, 125), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            
-            # Only trigger if held for minimum time
-            if thumbs_down_active and hold_time >= min_gesture_time:
-                # Initial press
-                if action_ready:
-                    # Press down arrow 10 times for 10% volume decrease
-                    for _ in range(10):
-                        pyautogui.press('down')
-                    last_action_time = current_time
-                    
+            # Execute if we have enough consecutive frames
+            if gesture_frames >= required_consecutive_frames and action_ready:
+                # Press down arrow 10 times for 10% volume decrease
+                for _ in range(10):
+                    pyautogui.press('down')
+                last_action_time = current_time
+                
                 # Show that action was performed
                 cv2.putText(frame, "ACTION: Volume -10%", (50, 150), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        else:
-            thumbs_down_active = False
-            
+        
         # 3. Two Fingers (Index & Middle Extended) → Rewind 10s
-        if (index_extended and 
-            middle_extended and 
-            not ring_extended and 
-            not pinky_extended):
+        elif (index_extended and 
+              middle_extended and 
+              not ring_extended and 
+              not pinky_extended):
             
             current_gesture = "Two Fingers"
             cv2.putText(frame, "Rewind 10s", (50, 150), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
             
-            # Start timing if not already tracking
-            if not two_fingers_active:
-                two_fingers_start_time = current_time
-                two_fingers_active = True
+            # Check if this is a new gesture or continued gesture
+            if last_gesture == "Two Fingers":
+                gesture_frames += 1
+            else:
+                gesture_frames = 1
+                last_gesture = "Two Fingers"
             
-            # Show hold duration
-            hold_time = current_time - two_fingers_start_time
-            cv2.putText(frame, f"Holding: {hold_time:.1f}s", (50, 175), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-            
-            # Only trigger if held for minimum time
-            if two_fingers_active and hold_time >= min_gesture_time:
-                # Initial press
-                if action_ready:
-                    pyautogui.press("left")
-                    last_action_time = current_time
-                    
+            # Execute if we have enough consecutive frames
+            if gesture_frames >= required_consecutive_frames and action_ready:
+                pyautogui.press("left")
+                last_action_time = current_time
+                
                 # Show that action was performed
                 cv2.putText(frame, "ACTION: Rewind", (50, 200), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-        else:
-            two_fingers_active = False
-            
+        
         # 4. Three Fingers (Index, Middle & Ring Extended) → Forward 10s
-        if (index_extended and 
-            middle_extended and 
-            ring_extended and 
-            not pinky_extended):
+        elif (index_extended and 
+              middle_extended and 
+              ring_extended and 
+              not pinky_extended):
             
             current_gesture = "Three Fingers"
             cv2.putText(frame, "Forward 10s", (50, 150), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
             
-            # Start timing if not already tracking
-            if not three_fingers_active:
-                three_fingers_start_time = current_time
-                three_fingers_active = True
+            # Check if this is a new gesture or continued gesture
+            if last_gesture == "Three Fingers":
+                gesture_frames += 1
+            else:
+                gesture_frames = 1
+                last_gesture = "Three Fingers"
             
-            # Show hold duration
-            hold_time = current_time - three_fingers_start_time
-            cv2.putText(frame, f"Holding: {hold_time:.1f}s", (50, 175), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-            
-            # Only trigger if held for minimum time
-            if three_fingers_active and hold_time >= min_gesture_time:
-                # Initial press
-                if action_ready:
-                    pyautogui.press("right")
-                    last_action_time = current_time
-                    
+            # Execute if we have enough consecutive frames
+            if gesture_frames >= required_consecutive_frames and action_ready:
+                pyautogui.press("right")
+                last_action_time = current_time
+                
                 # Show that action was performed
                 cv2.putText(frame, "ACTION: Forward", (50, 200), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-        else:
-            three_fingers_active = False
-            
+        
         # 5. Four Fingers (but not palm) - Toggle Full Screen
-        if (index_extended and 
-            middle_extended and 
-            ring_extended and 
-            pinky_extended and
-            not is_palm_showing(landmarks)):
+        elif (index_extended and 
+              middle_extended and 
+              ring_extended and 
+              pinky_extended and
+              not is_palm_showing(landmarks)):
             
             current_gesture = "Four Fingers"
             cv2.putText(frame, "Toggle Full Screen", (50, 200), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
             
-            # Start timing if not already tracking
-            if not four_fingers_active:
-                four_fingers_start_time = current_time
-                four_fingers_active = True
+            # Check if this is a new gesture or continued gesture
+            if last_gesture == "Four Fingers":
+                gesture_frames += 1
+            else:
+                gesture_frames = 1
+                last_gesture = "Four Fingers"
             
-            # Show hold duration
-            hold_time = current_time - four_fingers_start_time
-            cv2.putText(frame, f"Holding: {hold_time:.1f}s", (50, 225), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            
-            # Only trigger if held for minimum time
-            if four_fingers_active and hold_time >= min_gesture_time:
-                if action_ready:
-                    pyautogui.press('f')
-                    last_action_time = current_time
-                    
+            # Execute if we have enough consecutive frames
+            if gesture_frames >= required_consecutive_frames and action_ready:
+                pyautogui.press('f')
+                last_action_time = current_time
+                
                 # Show that action was performed
                 cv2.putText(frame, "ACTION: Fullscreen", (50, 250), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        else:
-            four_fingers_active = False
-            
+        
         # 6. Pinch Gesture (Play/Pause)
-        if thumb_index_dist < 0.05:  # Fingers close together
+        elif thumb_index_dist < 0.05:  # Fingers close together
             current_gesture = "Pinch"
             cv2.putText(frame, "Play/Pause", (50, 250), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
             
-            # Start timing if not already tracking
-            if not pinch_active:
-                pinch_start_time = current_time
-                pinch_active = True
+            # Check if this is a new gesture or continued gesture
+            if last_gesture == "Pinch":
+                gesture_frames += 1
+            else:
+                gesture_frames = 1
+                last_gesture = "Pinch"
             
-            # Show hold duration
-            hold_time = current_time - pinch_start_time
-            cv2.putText(frame, f"Holding: {hold_time:.1f}s", (50, 275), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-            
-            # Only trigger if held for minimum time
-            if pinch_active and hold_time >= min_gesture_time:
-                if action_ready:
-                    pyautogui.press("space")
-                    last_action_time = current_time
-                    
+            # Execute if we have enough consecutive frames
+            if gesture_frames >= required_consecutive_frames and action_ready:
+                pyautogui.press("space")
+                last_action_time = current_time
+                
                 # Show that action was performed
                 cv2.putText(frame, "ACTION: Play/Pause", (50, 300), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-        else:
-            pinch_active = False
         
-        # Display current gesture
+        # If no recognized gesture is detected
+        else:
+            last_gesture = None
+            gesture_frames = 0
+        
+        # Display current gesture and frame count
         cv2.putText(frame, f"Gesture: {current_gesture}", (30, 70), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        if current_gesture != "None":
+            cv2.putText(frame, f"Frames: {gesture_frames}/{required_consecutive_frames}", (30, 95), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 255), 1)
     else:
-        # Reset all gesture states if no hands detected
-        thumbs_up_active = False
-        thumbs_down_active = False
-        two_fingers_active = False
-        three_fingers_active = False
-        four_fingers_active = False
-        pinch_active = False
-        hands_crossed_active = False
+        # Reset all tracking if no hands detected
+        last_gesture = None
+        gesture_frames = 0
     
     # Display hand detection status
     cv2.putText(frame, detection_status, (30, 50), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
-    # Display controls information
+    # Display controls information (simplified, removed "hold 1s" text)
     cv2.putText(frame, "YouTube Controls:", (30, 320), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 200), 2)
-    cv2.putText(frame, "- Pinch: Play/Pause (hold 1s)", (40, 345), 
+    cv2.putText(frame, "- Pinch: Play/Pause", (40, 345), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 255), 1)
-    cv2.putText(frame, "- Thumbs Up/Down: Volume +/-10% (hold 1s)", (40, 365), 
+    cv2.putText(frame, "- Thumbs Up/Down: Volume +/-10%", (40, 365), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 255), 1)
-    cv2.putText(frame, "- 2 Fingers: Rewind (hold 1s)", (40, 385), 
+    cv2.putText(frame, "- 2 Fingers: Rewind", (40, 385), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 255), 1)
-    cv2.putText(frame, "- 3 Fingers: Forward (hold 1s)", (40, 405), 
+    cv2.putText(frame, "- 3 Fingers: Forward", (40, 405), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 255), 1)
-    cv2.putText(frame, "- 4 Fingers: Full Screen (hold 1s)", (40, 425), 
+    cv2.putText(frame, "- 4 Fingers: Full Screen", (40, 425), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 255), 1)
-    cv2.putText(frame, "- Cross Hands: Close YouTube (hold 1s)", (40, 445), 
+    cv2.putText(frame, "- Cross Hands: Close YouTube", (40, 445), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 255), 1)
     
     # Show output
