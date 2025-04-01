@@ -2,3 +2,5 @@ myenv
 /train
 /val
 gesture_model.pth
+train.csv
+val.csv
