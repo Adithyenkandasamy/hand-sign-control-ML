@@ -55,6 +55,10 @@ frame_count = 0
 previous_gestures = []
 gesture_history_length = 3
 
+# Track hand positions for swing detection
+previous_hand_positions = []
+position_history_length = 10
+
 def calculate_distance(landmark1, landmark2):
     """Calculate Euclidean distance between two landmarks"""
     return ((landmark1.x - landmark2.x) ** 2 + 
@@ -101,6 +105,31 @@ def is_palm_showing(landmarks):
     )
     
     return fingers_extended and fingers_spread
+
+def detect_swing_gesture(current_position, position_history, threshold=0.15):
+    """Detect a hand swing motion based on position history"""
+    if len(position_history) < 5:  # Need enough history to detect swing
+        return False
+    
+    # Calculate x-directional movement
+    x_movement = abs(current_position.x - position_history[0].x)
+    
+    # Check if hand moved significantly horizontally with minimal vertical movement
+    y_movement = abs(current_position.y - position_history[0].y)
+    
+    # Return true if horizontal movement exceeds threshold and vertical movement is minimal
+    return x_movement > threshold and y_movement < threshold / 2
+
+def is_pinch_gesture(landmarks):
+    """Improved pinch gesture detection"""
+    thumb_tip = landmarks[THUMB_TIP]
+    index_tip = landmarks[INDEX_TIP]
+    
+    # Calculate distance between thumb and index fingertips
+    distance = calculate_distance(thumb_tip, index_tip)
+    
+    # Check if thumb and index are touching (very small distance)
+    return distance < 0.035  # Adjusted threshold for more reliable detection
 
 def are_hands_crossed(hand_landmarks1, hand_landmarks2):
     """Detect if two hands are crossed - improved with more robust checks"""
@@ -198,6 +227,7 @@ while cap.isOpened():
             middle_tip = landmarks[MIDDLE_TIP]
             ring_tip = landmarks[RING_TIP]
             pinky_tip = landmarks[PINKY_TIP]
+            wrist = landmarks[WRIST]
             
             # Get MCPs for better gesture detection
             thumb_mcp = landmarks[THUMB_MCP]
@@ -206,8 +236,10 @@ while cap.isOpened():
             ring_mcp = landmarks[RING_MCP]
             pinky_mcp = landmarks[PINKY_MCP]
             
-            # Calculate thumb-index distance
-            thumb_index_dist = calculate_distance(thumb_tip, index_tip)
+            # Track wrist position for swing detection
+            previous_hand_positions.append(wrist)
+            if len(previous_hand_positions) > position_history_length:
+                previous_hand_positions.pop(0)
             
             # Check if fingers are extended
             index_extended = index_tip.y < index_mcp.y - 0.05
@@ -216,8 +248,23 @@ while cap.isOpened():
             pinky_extended = pinky_tip.y < pinky_mcp.y - 0.05
             thumb_extended = thumb_tip.y < thumb_mcp.y - 0.05
             
-            # Check palm gesture - stricter conditions
-            if is_palm_showing(landmarks):
+            # Check for swing gesture
+            if detect_swing_gesture(wrist, previous_hand_positions):
+                current_gesture = "Swing"
+                if last_gesture == "Swing":
+                    gesture_frames += 1
+                else:
+                    gesture_frames = 1
+                    last_gesture = "Swing"
+                
+                if gesture_frames >= required_consecutive_frames and action_ready:
+                    # Exit application on swing gesture
+                    cv2.destroyAllWindows()
+                    cap.release()
+                    break
+            
+            # Check palm gesture - for play/pause
+            elif is_palm_showing(landmarks):
                 # Add an extra check that all fingers are spread out
                 finger_spread = (
                     calculate_distance(index_tip, middle_tip) > 0.05 and
@@ -233,7 +280,24 @@ while cap.isOpened():
                         gesture_frames = 1
                         last_gesture = "Palm"
                     
-                    # Don't perform any action for palm - it's just for reference
+                    # Play/pause video on palm gesture
+                    if gesture_frames >= required_consecutive_frames and action_ready:
+                        pyautogui.press("space")
+                        last_action_time = current_time
+            
+            # Pinch Gesture (CHANGED TO CLOSE YOUTUBE APP)
+            elif is_pinch_gesture(landmarks):
+                current_gesture = "Pinch"
+                if last_gesture == "Pinch":
+                    gesture_frames += 1
+                else:
+                    gesture_frames = 1
+                    last_gesture = "Pinch"
+                
+                if gesture_frames >= required_consecutive_frames and action_ready:
+                    # Close YouTube tab when pinch is detected
+                    pyautogui.hotkey('ctrl', 'w')  # Close current tab/window
+                    last_action_time = current_time
             
             # Thumbs Up (Volume Up) - more specific conditions
             elif (thumb_extended and
@@ -328,25 +392,6 @@ while cap.isOpened():
                     pyautogui.press('f')
                     last_action_time = current_time
             
-            # Pinch Gesture (Play/Pause) - more specific detection
-            elif (thumb_index_dist < 0.04 and  # Very close distance for pinch
-                  not middle_extended and 
-                  not ring_extended and 
-                  not pinky_extended):
-                
-                current_gesture = "Pinch"
-                if last_gesture == "Pinch":
-                    gesture_frames += 1
-                else:
-                    gesture_frames = 1
-                    last_gesture = "Pinch"
-                
-                if gesture_frames >= required_consecutive_frames and action_ready:
-                    # Check gesture history to avoid false positives
-                    if not previous_gestures or previous_gestures[-1] != "Pinch":
-                        pyautogui.press("space")
-                        last_action_time = current_time
-            
             # No recognized gesture
             else:
                 last_gesture = None
@@ -356,13 +401,17 @@ while cap.isOpened():
         last_gesture = None
         gesture_frames = 0
     
+    # Display current gesture on screen
+    cv2.putText(frame, f"Gesture: {current_gesture}", (10, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    
     # Update gesture history
     if current_gesture != "None":
         previous_gestures.append(current_gesture)
         if len(previous_gestures) > gesture_history_length:
             previous_gestures.pop(0)
     
-    # Show output without text overlay
+    # Show output with gesture overlay
     cv2.imshow("YouTube Gesture Control", frame)
     
     # Exit on 'q'
