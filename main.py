@@ -2,6 +2,7 @@ import cv2
 import mediapipe as mp
 import pyautogui
 import time
+import sys  # Added to handle application exit
 
 # Initialize MediaPipe Hands with optimal performance settings
 mp_hands = mp.solutions.hands
@@ -280,7 +281,7 @@ while cap.isOpened():
                     connection_drawing_spec=drawing_spec
                 )
             
-            # Check for crossed hands
+            # Check for crossed hands to exit application
             if are_hands_crossed(results.multi_hand_landmarks[0], results.multi_hand_landmarks[1]):
                 current_gesture = "Hands Crossed"
                 
@@ -293,11 +294,15 @@ while cap.isOpened():
                 
                 # Execute with required frames with extra verification
                 if gesture_frames >= required_consecutive_frames and action_ready:
-                    # Only close if we've seen crossed hands consistently
-                    all_crossed = all(g == "Hands Crossed" for g in previous_gestures[-3:]) if previous_gestures else False
-                    if all_crossed:
-                        pyautogui.hotkey('ctrl', 'w')
-                        last_action_time = current_time
+                    # Close the application when hands are crossed
+                    cv2.putText(frame, "Closing Application...", 
+                                (frame.shape[1]//4, frame.shape[0]//2), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    cv2.imshow("YouTube Gesture Control", frame)
+                    cv2.waitKey(1000)  # Show message for 1 second
+                    cap.release()
+                    cv2.destroyAllWindows()
+                    sys.exit(0)  # Exit the application
             else:
                 if last_gesture == "Hands Crossed":
                     last_gesture = None
@@ -330,7 +335,7 @@ while cap.isOpened():
             ring_mcp = landmarks[RING_MCP]
             pinky_mcp = landmarks[PINKY_MCP]
             
-            # Track wrist position for swing detection
+            # Track wrist position for swing detection (keeping code structure but not using for YouTube close)
             previous_hand_positions.append(wrist)
             if len(previous_hand_positions) > position_history_length:
                 previous_hand_positions.pop(0)
@@ -342,19 +347,7 @@ while cap.isOpened():
             pinky_extended = pinky_tip.y < pinky_mcp.y - 0.1
             thumb_extended = thumb_tip.y < thumb_mcp.y - 0.1
             
-            # Check for swing gesture
-            if detect_swing_gesture(wrist, previous_hand_positions):
-                current_gesture = "Swing"
-                if last_gesture == "Swing":
-                    gesture_frames += 1
-                else:
-                    gesture_frames = 1
-                    last_gesture = "Swing"
-                
-                if gesture_frames >= required_consecutive_frames and action_ready:
-                    # Close YouTube tab when swing is detected
-                    pyautogui.hotkey('ctrl', 'w')
-                    last_action_time = current_time
+            # Removed swing gesture -> closing YouTube functionality
             
             # Check thumb orientation for debugging
             thumb_up_direction = thumb_tip.y < thumb_mcp.y - 0.08 and thumb_tip.y < landmarks[3].y - 0.05
@@ -488,6 +481,10 @@ while cap.isOpened():
     gesture_text = f"Gesture: {current_gesture}" + (f" (Frames: {gesture_frames})" if gesture_frames > 0 else "")
     cv2.putText(frame, gesture_text, (10, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    
+    # Add instruction for cross hands to exit
+    cv2.putText(frame, "Cross hands to exit application", (10, frame.shape[0] - 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
     
     # Update gesture history
     if current_gesture != "None":
